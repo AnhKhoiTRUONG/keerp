@@ -22,7 +22,8 @@ use embassy_usb::class::hid::{HidReaderWriter, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use panic_halt as _;
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+use usbd_hid::descriptor::{KeyboardReport, KeyboardUsage, SerializedDescriptor};
+pub mod matrix;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -84,64 +85,158 @@ async fn main(_spawner: Spawner) {
     let usb_fut = usb.run();
 
     // TODO: Test with different PIN here
-    let mut r1 = Output::new(p.PIN_29, Level::High);
-    let mut c1 = Input::new(p.PIN_2, Pull::Up);
-    let mut c2 = Input::new(p.PIN_4, Pull::Up);
+    // let mut r1 = Output::new(p.PIN_29, Level::High);
+    // let mut c1 = Input::new(p.PIN_2, Pull::Up);
+    // let mut c2 = Input::new(p.PIN_4, Pull::Up);
+
+    let mut led = Output::new(p.PIN_25, Level::Low);
+
+    let mut rows = [
+        Output::new(p.PIN_26, Level::High),
+        Output::new(p.PIN_27, Level::High),
+        Output::new(p.PIN_28, Level::High),
+        Output::new(p.PIN_29, Level::High),
+    ];
+
+    // 5 Columns initialized directly into the array as Inputs
+    let mut cols = [
+        Input::new(p.PIN_2, Pull::Up),
+        Input::new(p.PIN_4, Pull::Up),
+        Input::new(p.PIN_3, Pull::Up),
+        Input::new(p.PIN_7, Pull::Up),
+        Input::new(p.PIN_6, Pull::Up),
+    ];
 
     // Enable schmitt trigger to avoid noise
-    // r1.set_schmitt(true);
-    c1.set_schmitt(true);
-    c2.set_schmitt(true);
+    for c in &mut cols {
+        c.set_schmitt(true);
+    }
 
-    let cols = [c1, c2];
-    let mut prev_key = [false, false];
-    let mut matrix_key = [false, false];
+    let mut prev_keys = [[false; 5]; 4];
+    let mut keys = [[false; 5]; 4];
+    let keymap: [[KeyboardUsage; 5]; 4] = [
+        // Row 0 (Top): Tab, Q, W, E, R
+        [
+            KeyboardUsage::KeyboardTab,
+            KeyboardUsage::KeyboardQq,
+            KeyboardUsage::KeyboardWw,
+            KeyboardUsage::KeyboardEe,
+            KeyboardUsage::KeyboardRr,
+        ],
+        // Row 1 (Home): Esc (or Caps Lock), A, S, D, F
+        [
+            KeyboardUsage::KeyboardEscape,
+            KeyboardUsage::KeyboardAa,
+            KeyboardUsage::KeyboardSs,
+            KeyboardUsage::KeyboardDd,
+            KeyboardUsage::KeyboardFf,
+        ],
+        // Row 2 (Bottom): Shift, Z, X, C, V
+        [
+            KeyboardUsage::KeyboardLeftShift,
+            KeyboardUsage::KeyboardZz,
+            KeyboardUsage::KeyboardXx,
+            KeyboardUsage::KeyboardCc,
+            KeyboardUsage::KeyboardVv,
+        ],
+        // Row 3 (Thumb Cluster): Ctrl, GUI (Windows/Cmd), Alt, Space, B
+        [
+            KeyboardUsage::KeyboardLeftControl,
+            KeyboardUsage::KeyboardLeftGUI,
+            KeyboardUsage::KeyboardLeftAlt,
+            KeyboardUsage::KeyboardSpacebar,
+            KeyboardUsage::KeyboardBb,
+        ],
+    ];
+
+    let mut matrix_key = matrix::Matrix::new(cols, rows);
+    let mut key_codes = [0, 0, 0, 0, 0, 0];
+    let mut modifiers = 0;
+    let mut keycode = 0;
 
     let (reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {
         loop {
-            r1.set_low();
+            keys = matrix_key.scan().await;
 
-            for i in 0..2 {
-                if cols[i].is_low() {
-                    matrix_key[i] = true;
-                } else {
-                    matrix_key[i] = false;
+            if prev_keys != keys {
+                key_codes = [0, 0, 0, 0, 0, 0];
+                modifiers = 0;
+                let mut index = 0;
+                for i in 0..4 {
+                    for j in 0..5 {
+                        if keys[i][j] {
+                            keycode = keymap[i][j] as u8;
+                            if (224..=231).contains(&keycode) {
+                                modifiers = keycode - 224;
+                            } else {
+                                key_codes[index] = keycode;
+                            }
+                            index += 1;
+                        }
+                    }
                 }
             }
 
-            for i in 0..2 {
-                if matrix_key[i] && !prev_key[i] {
-                    let report = KeyboardReport {
-                        modifier: 0,
-                        reserved: 0,
-                        leds: 0,
-                        keycodes: [i as u8 + 4, 0, 0, 0, 0, 0],
-                    };
-                    // Send the report.
-                    match writer.write_serialize(&report).await {
-                        Ok(()) => {}
-                        Err(e) => {}
-                    };
-                } else if !matrix_key[i] && prev_key[i] {
-                    let report = KeyboardReport {
-                        modifier: 0,
-                        reserved: 0,
-                        leds: 0,
-                        keycodes: [0, 0, 0, 0, 0, 0],
-                    };
-                    match writer.write_serialize(&report).await {
-                        Ok(()) => {}
-                        Err(e) => {}
-                    };
-                }
-            }
+            // if matrix_key.scan_a_test().await {
+            //     led.set_high();
+            // } else {
+            //     led.set_low();
+            // }
 
-            Timer::after_millis(20).await;
+            let report = KeyboardReport {
+                modifier: modifiers,
+                reserved: 0,
+                leds: 0,
+                keycodes: key_codes,
+            };
+            // Send the report.
+            match writer.write_serialize(&report).await {
+                Ok(()) => {}
+                Err(e) => {}
+            };
 
-            prev_key = matrix_key;
+            // for r in
+            // r1.set_low();
+            //
+            // for i in 0..2 {
+            //     if cols[i].is_low() {
+            //         matrix_key[i] = true;
+            //     } else {
+            //         matrix_key[i] = false;
+            //     }
+            // }
+            //
+            // for i in 0..2 {
+            //     if matrix_key[i] && !prev_key[i] {
+            //         let report = KeyboardReport {
+            //             modifier: 0,
+            //             reserved: 0,
+            //             leds: 0,
+            //             keycodes: [i as u8 + 4, 0, 0, 0, 0, 0],
+            //         };
+            //         // Send the report.
+            //         match writer.write_serialize(&report).await {
+            //             Ok(()) => {}
+            //             Err(e) => {}
+            //         };
+            //     } else if !matrix_key[i] && prev_key[i] {
+            //         let report = KeyboardReport {
+            //             modifier: 0,
+            //             reserved: 0,
+            //             leds: 0,
+            //             keycodes: [0, 0, 0, 0, 0, 0],
+            //         };
+            //         match writer.write_serialize(&report).await {
+            //             Ok(()) => {}
+            //             Err(e) => {}
+            //         };
+            //     }
+            // }
+
+            prev_keys = keys;
 
             // Create a report with the A key pressed. (no shift modifier)
 
