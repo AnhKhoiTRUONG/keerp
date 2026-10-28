@@ -17,12 +17,14 @@ use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, HidWriter, ReportId};
 use embassy_usb::class::hid::{HidReaderWriter, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use panic_halt as _;
 use usbd_hid::descriptor::{KeyboardReport, KeyboardUsage, SerializedDescriptor};
+
+use crate::matrix::Matrix;
 pub mod matrix;
 
 bind_interrupts!(struct Irqs {
@@ -89,6 +91,8 @@ async fn main(_spawner: Spawner) {
     // let mut c1 = Input::new(p.PIN_2, Pull::Up);
     // let mut c2 = Input::new(p.PIN_4, Pull::Up);
 
+    let (reader, mut writer) = hid.split();
+
     let mut led = Output::new(p.PIN_25, Level::Low);
 
     let mut rows = [
@@ -112,8 +116,6 @@ async fn main(_spawner: Spawner) {
         c.set_schmitt(true);
     }
 
-    let mut prev_keys = [[false; 5]; 4];
-    let mut keys = [[false; 5]; 4];
     let keymap: [[KeyboardUsage; 5]; 4] = [
         // Row 0 (Top): Tab, Q, W, E, R
         [
@@ -150,99 +152,102 @@ async fn main(_spawner: Spawner) {
     ];
 
     let mut matrix_key = matrix::Matrix::new(cols, rows);
-    let mut key_codes = [0, 0, 0, 0, 0, 0];
-    let mut modifiers = 0;
-    let mut keycode = 0;
 
-    let (reader, mut writer) = hid.split();
-
-    // Do stuff with the class!
-    let in_fut = async {
-        loop {
-            keys = matrix_key.scan().await;
-
-            if prev_keys != keys {
-                key_codes = [0, 0, 0, 0, 0, 0];
-                modifiers = 0;
-                let mut index = 0;
-                for i in 0..4 {
-                    for j in 0..5 {
-                        if keys[i][j] {
-                            keycode = keymap[i][j] as u8;
-                            if (224..=231).contains(&keycode) {
-                                modifiers = keycode - 224;
-                            } else {
-                                key_codes[index] = keycode;
-                            }
-                            index += 1;
-                        }
-                    }
-                }
-            }
-
-            // if matrix_key.scan_a_test().await {
-            //     led.set_high();
-            // } else {
-            //     led.set_low();
-            // }
-
-            let report = KeyboardReport {
-                modifier: modifiers,
-                reserved: 0,
-                leds: 0,
-                keycodes: key_codes,
-            };
-            // Send the report.
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => {}
-            };
-
-            // for r in
-            // r1.set_low();
-            //
-            // for i in 0..2 {
-            //     if cols[i].is_low() {
-            //         matrix_key[i] = true;
-            //     } else {
-            //         matrix_key[i] = false;
-            //     }
-            // }
-            //
-            // for i in 0..2 {
-            //     if matrix_key[i] && !prev_key[i] {
-            //         let report = KeyboardReport {
-            //             modifier: 0,
-            //             reserved: 0,
-            //             leds: 0,
-            //             keycodes: [i as u8 + 4, 0, 0, 0, 0, 0],
-            //         };
-            //         // Send the report.
-            //         match writer.write_serialize(&report).await {
-            //             Ok(()) => {}
-            //             Err(e) => {}
-            //         };
-            //     } else if !matrix_key[i] && prev_key[i] {
-            //         let report = KeyboardReport {
-            //             modifier: 0,
-            //             reserved: 0,
-            //             leds: 0,
-            //             keycodes: [0, 0, 0, 0, 0, 0],
-            //         };
-            //         match writer.write_serialize(&report).await {
-            //             Ok(()) => {}
-            //             Err(e) => {}
-            //         };
-            //     }
-            // }
-
-            prev_keys = keys;
-
-            // Create a report with the A key pressed. (no shift modifier)
-
-            // signal_pin.wait_for_high().await;
-        }
-    };
+    // let mut prev_keys = [[false; 5]; 4];
+    // let mut keys = [[false; 5]; 4];
+    //
+    // let mut key_codes = [0, 0, 0, 0, 0, 0];
+    // let mut modifiers = 0;
+    // let mut keycode = 0;
+    //
+    //
+    // // Do stuff with the class!
+    // let in_fut = async {
+    //     loop {
+    //         keys = matrix_key.scan().await;
+    //
+    //         if prev_keys != keys {
+    //             key_codes = [0, 0, 0, 0, 0, 0];
+    //             modifiers = 0;
+    //             let mut index = 0;
+    //             for i in 0..4 {
+    //                 for j in 0..5 {
+    //                     if keys[i][j] {
+    //                         keycode = keymap[i][j] as u8;
+    //                         if (224..=231).contains(&keycode) {
+    //                             modifiers = keycode - 224;
+    //                         } else {
+    //                             key_codes[index] = keycode;
+    //                         }
+    //                         index += 1;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //
+    //         // if matrix_key.scan_a_test().await {
+    //         //     led.set_high();
+    //         // } else {
+    //         //     led.set_low();
+    //         // }
+    //
+    //         let report = KeyboardReport {
+    //             modifier: modifiers,
+    //             reserved: 0,
+    //             leds: 0,
+    //             keycodes: key_codes,
+    //         };
+    //         // Send the report.
+    //         match writer.write_serialize(&report).await {
+    //             Ok(()) => {}
+    //             Err(e) => {}
+    //         };
+    //
+    //         // for r in
+    //         // r1.set_low();
+    //         //
+    //         // for i in 0..2 {
+    //         //     if cols[i].is_low() {
+    //         //         matrix_key[i] = true;
+    //         //     } else {
+    //         //         matrix_key[i] = false;
+    //         //     }
+    //         // }
+    //         //
+    //         // for i in 0..2 {
+    //         //     if matrix_key[i] && !prev_key[i] {
+    //         //         let report = KeyboardReport {
+    //         //             modifier: 0,
+    //         //             reserved: 0,
+    //         //             leds: 0,
+    //         //             keycodes: [i as u8 + 4, 0, 0, 0, 0, 0],
+    //         //         };
+    //         //         // Send the report.
+    //         //         match writer.write_serialize(&report).await {
+    //         //             Ok(()) => {}
+    //         //             Err(e) => {}
+    //         //         };
+    //         //     } else if !matrix_key[i] && prev_key[i] {
+    //         //         let report = KeyboardReport {
+    //         //             modifier: 0,
+    //         //             reserved: 0,
+    //         //             leds: 0,
+    //         //             keycodes: [0, 0, 0, 0, 0, 0],
+    //         //         };
+    //         //         match writer.write_serialize(&report).await {
+    //         //             Ok(()) => {}
+    //         //             Err(e) => {}
+    //         //         };
+    //         //     }
+    //         // }
+    //
+    //         prev_keys = keys;
+    //
+    //         // Create a report with the A key pressed. (no shift modifier)
+    //
+    //         // signal_pin.wait_for_high().await;
+    //     }
+    // };
 
     let out_fut = async {
         reader.run(false, &mut request_handler).await;
@@ -250,7 +255,11 @@ async fn main(_spawner: Spawner) {
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join(usb_fut, join(in_fut, out_fut)).await;
+    join(
+        usb_fut,
+        join(custom_task(writer, &mut matrix_key, &keymap), out_fut),
+    )
+    .await;
 
     // // XIAO onboard user LED (GPIO from the xiao-generate registry).
     // let mut led = Output::new(p.PIN_25, Level::High);
@@ -339,5 +348,59 @@ impl Handler for MyDeviceHandler {
         // } else {
         //     info!("Device is no longer configured, the Vbus current limit is 100mA.");
         // }
+    }
+}
+
+async fn custom_task<'d, const CS: usize, const RS: usize>(
+    mut writer: HidWriter<'d, Driver<'d, USB>, 8>,
+    matrix: &mut Matrix<'d, CS, RS>,
+    keymap: &[[KeyboardUsage; CS]; RS],
+) {
+    let mut prev_keys = [[false; CS]; RS];
+    let mut keys;
+    let mut key_codes = [0, 0, 0, 0, 0, 0];
+    let mut modifiers = 0;
+    let mut keycode;
+    loop {
+        keys = matrix.scan().await;
+
+        if prev_keys != keys {
+            key_codes = [0, 0, 0, 0, 0, 0];
+            modifiers = 0;
+            let mut index = 0;
+            for i in 0..4 {
+                for j in 0..5 {
+                    if keys[i][j] {
+                        keycode = keymap[i][j] as u8;
+                        if (224..=231).contains(&keycode) {
+                            modifiers = keycode - 224;
+                        } else {
+                            key_codes[index] = keycode;
+                        }
+                        index += 1;
+                    }
+                }
+            }
+        }
+
+        // if matrix_key.scan_a_test().await {
+        //     led.set_high();
+        // } else {
+        //     led.set_low();
+        // }
+
+        let report = KeyboardReport {
+            modifier: modifiers,
+            reserved: 0,
+            leds: 0,
+            keycodes: key_codes,
+        };
+        // Send the report.
+        match writer.write_serialize(&report).await {
+            Ok(()) => {}
+            Err(e) => {}
+        };
+
+        prev_keys = keys;
     }
 }
