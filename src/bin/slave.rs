@@ -20,6 +20,10 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>;
 });
 
+/*The data send through uart have the format
+* [0x67, row, cols, is_pressed, 0x67]
+* to make sure that we dont have decalage*/
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -57,7 +61,7 @@ async fn main(_spawner: Spawner) {
                 for j in 0..5 {
                     if keys[i][j] != prev_keys[i][j] {
                         let state_byte = if keys[i][j] { 1 } else { 0 };
-                        let message: [u8; 3] = [i as u8, j as u8, state_byte];
+                        let message: [u8; 5] = [0x67, i as u8, j as u8, state_byte, 0x67];
                         let _ = uart.blocking_write(&message);
                         if led.is_set_high() {
                             led.set_low();

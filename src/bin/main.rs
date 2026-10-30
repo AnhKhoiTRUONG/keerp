@@ -9,6 +9,7 @@
 #![no_main]
 
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use keerp::layer::Layout;
 
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -33,7 +34,7 @@ use usbd_hid::descriptor::{KeyboardReport, KeyboardUsage, SerializedDescriptor};
 
 use keerp::matrix;
 
-static SLAVE_EVENTS: Channel<ThreadModeRawMutex, [u8; 3], 64> = Channel::new();
+static SLAVE_EVENTS: Channel<ThreadModeRawMutex, [u8; 5], 64> = Channel::new();
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
@@ -126,162 +127,185 @@ async fn main(_spawner: Spawner) {
         c.set_schmitt(true);
     }
 
-    let keymap: [[KeyboardUsage; 10]; 4] = [
-        // Row 0 (Top): Tab, Q, W, E, R
+    // let keymap: [[KeyboardUsage; 10]; 4] = [
+    //     // Row 0 (Top): Tab, Q, W, E, R
+    //     [
+    //         KeyboardUsage::KeyboardQq,
+    //         KeyboardUsage::KeyboardWw,
+    //         KeyboardUsage::KeyboardEe,
+    //         KeyboardUsage::KeyboardRr,
+    //         KeyboardUsage::KeyboardTt,
+    //         KeyboardUsage::KeyboardYy,
+    //         KeyboardUsage::KeyboardUu,
+    //         KeyboardUsage::KeyboardIi,
+    //         KeyboardUsage::KeyboardOo,
+    //         KeyboardUsage::KeyboardPp,
+    //     ],
+    //     [
+    //         // Left Half (Cols 0-4)
+    //         KeyboardUsage::KeyboardAa,
+    //         KeyboardUsage::KeyboardSs,
+    //         KeyboardUsage::KeyboardDd,
+    //         KeyboardUsage::KeyboardFf,
+    //         KeyboardUsage::KeyboardGg,
+    //         // Right Half (Cols 5-9)
+    //         KeyboardUsage::KeyboardHh,
+    //         KeyboardUsage::KeyboardJj,
+    //         KeyboardUsage::KeyboardKk,
+    //         KeyboardUsage::KeyboardLl,
+    //         KeyboardUsage::KeyboardSemiColon,
+    //     ],
+    //     // Row 2 (Bottom): Shift, Z, X, C, V
+    //     [
+    //         // Left Half (Cols 0-4)
+    //         KeyboardUsage::KeyboardZz,
+    //         KeyboardUsage::KeyboardXx,
+    //         KeyboardUsage::KeyboardCc,
+    //         KeyboardUsage::KeyboardVv,
+    //         KeyboardUsage::KeyboardBb,
+    //         // Right Half (Cols 5-9)
+    //         KeyboardUsage::KeyboardNn,
+    //         KeyboardUsage::KeyboardMm,
+    //         KeyboardUsage::KeyboardCommaLess,
+    //         KeyboardUsage::KeyboardPeriodGreater,
+    //         KeyboardUsage::KeyboardSlashQuestion,
+    //     ],
+    //     [
+    //         // Left Half Thumbs (Cols 0-4)
+    //         KeyboardUsage::KeyboardLeftControl,
+    //         KeyboardUsage::KeyboardLeftGUI,
+    //         KeyboardUsage::KeyboardLeftAlt,
+    //         KeyboardUsage::KeyboardLeftShift,
+    //         KeyboardUsage::KeyboardSpacebar,
+    //         // Right Half Thumbs (Cols 5-9)
+    //         KeyboardUsage::KeyboardEnter,
+    //         KeyboardUsage::KeyboardBackspace,
+    //         KeyboardUsage::KeyboardRightAlt,
+    //         KeyboardUsage::KeyboardRightGUI,
+    //         KeyboardUsage::KeyboardRightControl,
+    //     ],
+    // ];
+
+    let keymap: [[[KeyboardUsage; 10]; 4]; 2] = [
+        // ==========================================
+        // LAYER 0: Base QWERTY
+        // ==========================================
         [
-            KeyboardUsage::KeyboardQq,
-            KeyboardUsage::KeyboardWw,
-            KeyboardUsage::KeyboardEe,
-            KeyboardUsage::KeyboardRr,
-            KeyboardUsage::KeyboardTt,
-            KeyboardUsage::KeyboardYy,
-            KeyboardUsage::KeyboardUu,
-            KeyboardUsage::KeyboardIi,
-            KeyboardUsage::KeyboardOo,
-            KeyboardUsage::KeyboardPp,
+            // Row 0 (Top)
+            [
+                KeyboardUsage::KeyboardQq,
+                KeyboardUsage::KeyboardWw,
+                KeyboardUsage::KeyboardEe,
+                KeyboardUsage::KeyboardRr,
+                KeyboardUsage::KeyboardTt,
+                KeyboardUsage::KeyboardYy,
+                KeyboardUsage::KeyboardUu,
+                KeyboardUsage::KeyboardIi,
+                KeyboardUsage::KeyboardOo,
+                KeyboardUsage::KeyboardPp,
+            ],
+            // Row 1 (Home)
+            [
+                KeyboardUsage::KeyboardAa,
+                KeyboardUsage::KeyboardSs,
+                KeyboardUsage::KeyboardDd,
+                KeyboardUsage::KeyboardFf,
+                KeyboardUsage::KeyboardGg,
+                KeyboardUsage::KeyboardHh,
+                KeyboardUsage::KeyboardJj,
+                KeyboardUsage::KeyboardKk,
+                KeyboardUsage::KeyboardLl,
+                KeyboardUsage::KeyboardSemiColon,
+            ],
+            // Row 2 (Bottom)
+            [
+                KeyboardUsage::KeyboardZz,
+                KeyboardUsage::KeyboardXx,
+                KeyboardUsage::KeyboardCc,
+                KeyboardUsage::KeyboardVv,
+                KeyboardUsage::KeyboardBb,
+                KeyboardUsage::KeyboardNn,
+                KeyboardUsage::KeyboardMm,
+                KeyboardUsage::KeyboardCommaLess,
+                KeyboardUsage::KeyboardPeriodGreater,
+                KeyboardUsage::KeyboardSlashQuestion,
+            ],
+            // Row 3 (Thumbs)
+            [
+                KeyboardUsage::KeyboardLeftControl,
+                KeyboardUsage::KeyboardLeftGUI,
+                KeyboardUsage::KeyboardLeftAlt,
+                KeyboardUsage::KeyboardLeftShift,
+                KeyboardUsage::KeyboardSpacebar,
+                KeyboardUsage::KeyboardEnter,
+                KeyboardUsage::KeyboardBackspace,
+                KeyboardUsage::KeyboardRightAlt,
+                KeyboardUsage::KeyboardRightGUI,
+                KeyboardUsage::KeyboardRightControl,
+            ],
         ],
+        // ==========================================
+        // LAYER 1: Numbers, F-Keys, & Navigation
+        // ==========================================
         [
-            // Left Half (Cols 0-4)
-            KeyboardUsage::KeyboardAa,
-            KeyboardUsage::KeyboardSs,
-            KeyboardUsage::KeyboardDd,
-            KeyboardUsage::KeyboardFf,
-            KeyboardUsage::KeyboardGg,
-            // Right Half (Cols 5-9)
-            KeyboardUsage::KeyboardHh,
-            KeyboardUsage::KeyboardJj,
-            KeyboardUsage::KeyboardKk,
-            KeyboardUsage::KeyboardLl,
-            KeyboardUsage::KeyboardSemiColon,
-        ],
-        // Row 2 (Bottom): Shift, Z, X, C, V
-        [
-            // Left Half (Cols 0-4)
-            KeyboardUsage::KeyboardZz,
-            KeyboardUsage::KeyboardXx,
-            KeyboardUsage::KeyboardCc,
-            KeyboardUsage::KeyboardVv,
-            KeyboardUsage::KeyboardBb,
-            // Right Half (Cols 5-9)
-            KeyboardUsage::KeyboardNn,
-            KeyboardUsage::KeyboardMm,
-            KeyboardUsage::KeyboardCommaLess,
-            KeyboardUsage::KeyboardPeriodGreater,
-            KeyboardUsage::KeyboardSlashQuestion,
-        ],
-        [
-            // Left Half Thumbs (Cols 0-4)
-            KeyboardUsage::KeyboardLeftControl,
-            KeyboardUsage::KeyboardLeftGUI,
-            KeyboardUsage::KeyboardLeftAlt,
-            KeyboardUsage::KeyboardLeftShift,
-            KeyboardUsage::KeyboardSpacebar,
-            // Right Half Thumbs (Cols 5-9)
-            KeyboardUsage::KeyboardEnter,
-            KeyboardUsage::KeyboardBackspace,
-            KeyboardUsage::KeyboardRightAlt,
-            KeyboardUsage::KeyboardRightGUI,
-            KeyboardUsage::KeyboardRightControl,
+            // Row 0 (Numbers)
+            [
+                KeyboardUsage::Keyboard1Exclamation,
+                KeyboardUsage::Keyboard2At,
+                KeyboardUsage::Keyboard3Hash,
+                KeyboardUsage::Keyboard4Dollar,
+                KeyboardUsage::Keyboard5Percent,
+                KeyboardUsage::Keyboard6Caret,
+                KeyboardUsage::Keyboard7Ampersand,
+                KeyboardUsage::Keyboard8Asterisk,
+                KeyboardUsage::Keyboard9OpenParens,
+                KeyboardUsage::Keyboard0CloseParens,
+            ],
+            // Row 1 (F-Keys)
+            [
+                KeyboardUsage::KeyboardF1,
+                KeyboardUsage::KeyboardF2,
+                KeyboardUsage::KeyboardF3,
+                KeyboardUsage::KeyboardF4,
+                KeyboardUsage::KeyboardF5,
+                KeyboardUsage::KeyboardF6,
+                KeyboardUsage::KeyboardF7,
+                KeyboardUsage::KeyboardF8,
+                KeyboardUsage::KeyboardF9,
+                KeyboardUsage::KeyboardF10,
+            ],
+            // Row 2 (Punctuation & Arrows)
+            [
+                KeyboardUsage::KeyboardEscape,
+                KeyboardUsage::KeyboardTab,
+                KeyboardUsage::KeyboardDashUnderscore,
+                KeyboardUsage::KeyboardEqualPlus,
+                KeyboardUsage::KeyboardBackslashBar,
+                KeyboardUsage::KeyboardLeftArrow,
+                KeyboardUsage::KeyboardDownArrow,
+                KeyboardUsage::KeyboardUpArrow,
+                KeyboardUsage::KeyboardRightArrow,
+                KeyboardUsage::KeyboardSingleDoubleQuote,
+            ],
+            // Row 3 (Thumbs - Kept identical to Base Layer so keys don't shift unexpectedly)
+            [
+                KeyboardUsage::KeyboardLeftControl,
+                KeyboardUsage::KeyboardLeftGUI,
+                KeyboardUsage::KeyboardLeftAlt,
+                KeyboardUsage::KeyboardLeftShift,
+                KeyboardUsage::KeyboardSpacebar,
+                KeyboardUsage::KeyboardEnter,
+                KeyboardUsage::KeyboardBackspace,
+                KeyboardUsage::KeyboardRightAlt,
+                KeyboardUsage::KeyboardRightGUI,
+                KeyboardUsage::KeyboardRightControl,
+            ],
         ],
     ];
 
-    let mut matrix_key = matrix::Matrix::new(cols, rows);
+    let mut layout = Layout::new(keymap);
 
-    // let mut prev_keys = [[false; 5]; 4];
-    // let mut keys = [[false; 5]; 4];
-    //
-    // let mut key_codes = [0, 0, 0, 0, 0, 0];
-    // let mut modifiers = 0;
-    // let mut keycode = 0;
-    //
-    //
-    // // Do stuff with the class!
-    // let in_fut = async {
-    //     loop {
-    //         keys = matrix_key.scan().await;
-    //
-    //         if prev_keys != keys {
-    //             key_codes = [0, 0, 0, 0, 0, 0];
-    //             modifiers = 0;
-    //             let mut index = 0;
-    //             for i in 0..4 {
-    //                 for j in 0..5 {
-    //                     if keys[i][j] {
-    //                         keycode = keymap[i][j] as u8;
-    //                         if (224..=231).contains(&keycode) {
-    //                             modifiers = keycode - 224;
-    //                         } else {
-    //                             key_codes[index] = keycode;
-    //                         }
-    //                         index += 1;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //
-    //         // if matrix_key.scan_a_test().await {
-    //         //     led.set_high();
-    //         // } else {
-    //         //     led.set_low();
-    //         // }
-    //
-    //         let report = KeyboardReport {
-    //             modifier: modifiers,
-    //             reserved: 0,
-    //             leds: 0,
-    //             keycodes: key_codes,
-    //         };
-    //         // Send the report.
-    //         match writer.write_serialize(&report).await {
-    //             Ok(()) => {}
-    //             Err(e) => {}
-    //         };
-    //
-    //         // for r in
-    //         // r1.set_low();
-    //         //
-    //         // for i in 0..2 {
-    //         //     if cols[i].is_low() {
-    //         //         matrix_key[i] = true;
-    //         //     } else {
-    //         //         matrix_key[i] = false;
-    //         //     }
-    //         // }
-    //         //
-    //         // for i in 0..2 {
-    //         //     if matrix_key[i] && !prev_key[i] {
-    //         //         let report = KeyboardReport {
-    //         //             modifier: 0,
-    //         //             reserved: 0,
-    //         //             leds: 0,
-    //         //             keycodes: [i as u8 + 4, 0, 0, 0, 0, 0],
-    //         //         };
-    //         //         // Send the report.
-    //         //         match writer.write_serialize(&report).await {
-    //         //             Ok(()) => {}
-    //         //             Err(e) => {}
-    //         //         };
-    //         //     } else if !matrix_key[i] && prev_key[i] {
-    //         //         let report = KeyboardReport {
-    //         //             modifier: 0,
-    //         //             reserved: 0,
-    //         //             leds: 0,
-    //         //             keycodes: [0, 0, 0, 0, 0, 0],
-    //         //         };
-    //         //         match writer.write_serialize(&report).await {
-    //         //             Ok(()) => {}
-    //         //             Err(e) => {}
-    //         //         };
-    //         //     }
-    //         // }
-    //
-    //         prev_keys = keys;
-    //
-    //         // Create a report with the A key pressed. (no shift modifier)
-    //
-    //         // signal_pin.wait_for_high().await;
-    //     }
-    // };
+    let mut matrix_key = matrix::Matrix::new(cols, rows);
 
     let out_fut = async {
         reader.run(false, &mut request_handler).await;
@@ -306,20 +330,10 @@ async fn main(_spawner: Spawner) {
         usb_fut,
         join(
             uart_task(uart_rx, led),
-            custom_task(writer, &mut matrix_key, &keymap),
+            custom_task(writer, &mut matrix_key, &mut layout),
         ),
     )
     .await;
-
-    // // XIAO onboard user LED (GPIO from the xiao-generate registry).
-    // let mut led = Output::new(p.PIN_25, Level::High);
-    //
-    // loop {
-    //     led.set_high();
-    //     Timer::after_millis(5000).await;
-    //     led.set_low();
-    //     Timer::after_millis(5000).await;
-    // }
 }
 
 struct MyRequestHandler {}
@@ -401,10 +415,10 @@ impl Handler for MyDeviceHandler {
     }
 }
 
-async fn custom_task<'d, const CS: usize, const RS: usize>(
+async fn custom_task<'d, const CS: usize, const RS: usize, const L: usize>(
     mut writer: HidWriter<'d, Driver<'d, USB>, 8>,
     matrix: &mut matrix::Matrix<'d, CS, RS>,
-    keymap: &[[KeyboardUsage; 10]; RS],
+    layout: &mut Layout<L>,
 ) {
     let mut left_keys;
     let mut master_keys = [[false; 10]; 4];
@@ -426,9 +440,9 @@ async fn custom_task<'d, const CS: usize, const RS: usize>(
         }
 
         while let Ok(msg) = SLAVE_EVENTS.try_receive() {
-            let row = msg[0] as usize;
-            let right_col = msg[1] as usize;
-            let is_pressed = msg[2] == 1;
+            let row = msg[1] as usize;
+            let right_col = msg[2] as usize;
+            let is_pressed = msg[3] == 1;
 
             if row < RS && right_col < CS {
                 // Shift the column by 5 so it maps to the right side of our keymap!
@@ -449,13 +463,17 @@ async fn custom_task<'d, const CS: usize, const RS: usize>(
             for r in 0..RS {
                 for c in 0..10 {
                     if master_keys[r][c] {
-                        let keycode = keymap[r][c] as u8;
+                        if r == 3 && c == 7 {
+                            layout.change_layout();
+                        } else {
+                            let keycode = layout.ret_key(r, c) as u8;
 
-                        if (224..=231).contains(&keycode) {
-                            modifiers |= 1 << (keycode - 224);
-                        } else if index < 6 {
-                            key_codes[index] = keycode;
-                            index += 1;
+                            if (224..=231).contains(&keycode) {
+                                modifiers |= 1 << (keycode - 224);
+                            } else if index < 6 {
+                                key_codes[index] = keycode;
+                                index += 1;
+                            }
                         }
                     }
                 }
@@ -477,21 +495,23 @@ async fn custom_task<'d, const CS: usize, const RS: usize>(
 }
 
 async fn uart_task<'d>(mut uart_rx: PioUartRx<'static, PIO0, 0>, mut led: Output<'d>) {
-    let mut buf = [0u8; 3];
+    let mut buf = [0u8; 5];
     led.set_low();
 
     loop {
-        let b0 = uart_rx.read_u8().await;
-        let b1 = uart_rx.read_u8().await;
-        let b2 = uart_rx.read_u8().await;
+        if uart_rx.read(&mut buf).await.is_ok() {
+            if buf[0] != 0x67 || buf[4] != 0x67 {
+                continue;
+            }
 
-        SLAVE_EVENTS.send([b0, b1, b2]).await;
+            SLAVE_EVENTS.send(buf).await;
 
-        //for testing
-        if led.is_set_high() {
-            led.set_low();
-        } else {
-            led.set_high();
+            //for testing
+            if led.is_set_high() {
+                led.set_low();
+            } else {
+                led.set_high();
+            }
         }
     }
 }
