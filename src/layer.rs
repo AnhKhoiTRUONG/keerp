@@ -1,20 +1,48 @@
+use embassy_time::{Duration, Instant};
+use heapless::Vec;
 use usbd_hid::descriptor::KeyboardUsage;
 
-pub struct Layout<const L: usize> {
-    pub keymap: [[[KeyboardUsage; 10]; 4]; L],
-    pub idx: usize,
+#[derive(Clone, Copy)]
+pub struct KeyEvent {
+    pub row: usize,
+    pub col: usize,
+    pub is_pressed: bool,
+    pub time_ms: u64,
 }
 
-impl<const L: usize> Layout<L> {
-    pub fn new(keymap: [[[KeyboardUsage; 10]; 4]; L]) -> Self {
-        Self { keymap, idx: 0 }
-    }
+#[derive(Clone, Copy)]
+pub enum KeyTouch {
+    Key(KeyboardUsage),
+    Chord(ModifiersKey, KeyboardUsage),
+    LayerOn(LayerKey),
+    HoldTap(LayerKey, KeyboardUsage),
+    ModTap(ModifiersKey, KeyboardUsage),
+    None,
+}
 
-    pub fn change_layout(&mut self) {
-        self.idx = (self.idx + 1) % L;
-    }
+#[derive(Clone, Copy, PartialEq)]
+pub enum LayerKey {
+    Base = 0,
+    Nav = 1,
+    Num = 2,
+    Sym = 3,
+}
 
-    pub fn ret_key(&self, i: usize, j: usize) -> KeyboardUsage {
-        self.keymap[self.idx][i][j]
-    }
+#[derive(Clone, Copy)]
+pub enum ModifiersKey {
+    LCTRL = 0x01,
+    LSHIFT = 0x02,
+    LALT = 0x04,
+    LGUI = 0x08,
+    RCTRL = 0x10,
+    RSHIFT = 0x20,
+    RALT = 0x40,
+    RGUI = 0x80,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum HoldState {
+    Idle,
+    Waiting(Instant),
+    Hold,
 }

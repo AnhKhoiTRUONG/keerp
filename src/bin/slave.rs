@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
                 for j in 0..5 {
                     if keys[i][j] != prev_keys[i][j] {
                         let state_byte = if keys[i][j] { 1 } else { 0 };
-                        let message: [u8; 5] = [0x67, i as u8, j as u8, state_byte, 0x67];
+                        let message: [u8; 5] = [0x67, i as u8, j as u8 + 5, state_byte, 0x67];
                         let _ = uart.blocking_write(&message);
                         if led.is_set_high() {
                             led.set_low();
@@ -73,6 +73,5 @@ async fn main(_spawner: Spawner) {
             }
             prev_keys = keys;
         }
-        Timer::after_millis(10).await;
     }
 }
